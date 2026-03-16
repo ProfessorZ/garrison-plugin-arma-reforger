@@ -1,1 +1,15 @@
-{"id":"arma-reforger","name":"garrison-plugin-arma-reforger","version":"1.0.0","display_name":"Arma Reforger","description":"RCON plugin for Arma Reforger dedicated servers","author":"Garrison","repo":"https://github.com/ProfessorZ/garrison-plugin-arma-reforger","garrison_api":"1","default_ports":{"game":2001,"rcon":2301},"icon":"🎖️"}
+{
+  "id": "arma-reforger",
+  "name": "garrison-plugin-arma-reforger",
+  "version": "1.0.0",
+  "display_name": "Arma Reforger",
+  "description": "RCON plugin for Arma Reforger dedicated servers",
+  "author": "Garrison",
+  "repo": "https://github.com/ProfessorZ/garrison-plugin-arma-reforger",
+  "garrison_api": "1",
+  "default_ports": {
+    "game": 2001,
+    "rcon": 2302
+  },
+  "icon": "🪖"
+}
