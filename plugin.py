@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
-import re
+import socket
 from typing import Optional
 
 try:
@@ -49,7 +50,7 @@ except ImportError:
         def display_name(self) -> str: ...
 
         @abstractmethod
-        async def parse_players(self, raw_response: str) -> list[PlayerInfo]: ...
+        async def parse_players(self, raw_response: str) -> list: ...
 
         @abstractmethod
         async def get_status(self, send_command) -> ServerStatus: ...
@@ -90,14 +91,25 @@ logger = logging.getLogger(__name__)
 
 
 class ArmaReforgerPlugin(GamePlugin):
-    """Arma Reforger BattleEye RCON plugin."""
+    """Arma Reforger BattleEye RCON plugin.
+
+    berconpy is designed exclusively around the `async with client.connect()`
+    context manager pattern — it holds weak refs to the client internally, so
+    persistent connect/disconnect lifecycle management causes GC-related
+    ReferenceErrors and state machine conflicts.
+
+    Instead we store credentials in connect_custom and open a fresh
+    async-with connection per command in send_command_custom. BattleEye
+    is UDP so the per-command connection overhead is negligible.
+    """
 
     custom_connection = True
 
     def __init__(self):
-        self._client: Optional[berconpy.RCONClient] = None
-        self._connected_host: Optional[str] = None
-        self._connected_port: Optional[int] = None
+        self._host: Optional[str] = None
+        self._port: Optional[int] = None
+        self._password: Optional[str] = None
+        self._resolved_ip: Optional[str] = None
 
     @property
     def game_type(self) -> str:
@@ -108,49 +120,32 @@ class ArmaReforgerPlugin(GamePlugin):
         return "Arma Reforger"
 
     async def connect_custom(self, host: str, port: int, password: str) -> None:
-        import asyncio
-        import socket
-        # Plugin instance is a singleton — if already connected to the same
-        # target, reuse the existing connection (same as rcon_manager behaviour).
-        if self._client is not None and self._client.is_connected():
-            if (host, port) == (self._connected_host, self._connected_port):
-                return
-            # Different target — drop the old connection first.
-            self._client.close()
-            self._client = None
-
-        # berconpy's UDP transport requires a pre-resolved IP, not a hostname.
+        """Store credentials and pre-resolve hostname. No persistent socket."""
         loop = asyncio.get_running_loop()
         resolved = await loop.run_in_executor(
             None, lambda: socket.gethostbyname(host)
         )
-        client = berconpy.RCONClient()
-        # berconpy.connect() is an async context manager, not a coroutine.
-        # Use the lower-level protocol.run() to start the background task,
-        # then wait for login confirmation before returning.
-        client.protocol.run(resolved, port, password)
-        logged_in = await client.protocol.wait_for_login()
-        if not logged_in:
-            client.close()
-            raise RuntimeError("BattleEye RCON login failed — check host, port, and password")
-        self._client = client
-        self._connected_host = host
-        self._connected_port = port
+        self._host = host
+        self._port = port
+        self._password = password
+        self._resolved_ip = resolved
 
     async def disconnect_custom(self) -> None:
-        if self._client:
-            self._client.close()  # sync — cancels the background task
-            self._client = None
-            self._connected_host = None
-            self._connected_port = None
+        """Clear credentials — no persistent socket to close."""
+        self._host = None
+        self._port = None
+        self._password = None
+        self._resolved_ip = None
 
     async def send_command_custom(self, command: str) -> str:
-        if not self._client:
-            raise RuntimeError("Not connected to server")
-        response = await self._client.send_command(command)
-        return str(response)
+        """Open a short-lived berconpy connection, send command, return response."""
+        if not self._resolved_ip:
+            raise RuntimeError("Not connected to server — call connect_custom first")
+        client = berconpy.RCONClient()
+        async with client.connect(self._resolved_ip, self._port, self._password):
+            return await client.send_command(command)
 
-    async def parse_players(self, raw_response: str) -> list[PlayerInfo]:
+    async def parse_players(self, raw_response: str) -> list:
         players = []
         in_data = False
         for line in raw_response.strip().splitlines():
