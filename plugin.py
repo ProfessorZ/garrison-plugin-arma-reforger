@@ -142,8 +142,12 @@ class ArmaReforgerPlugin(GamePlugin):
         if not self._resolved_ip:
             raise RuntimeError("Not connected to server — call connect_custom first")
         client = berconpy.RCONClient()
-        async with client.connect(self._resolved_ip, self._port, self._password):
-            return await client.send_command(command)
+        try:
+            async with asyncio.timeout(15):
+                async with client.connect(self._resolved_ip, self._port, self._password):
+                    return await client.send_command(command)
+        except asyncio.TimeoutError:
+            raise RuntimeError(f"Timed out connecting to Arma Reforger RCON at {self._resolved_ip}:{self._port}")
 
     async def parse_players(self, raw_response: str) -> list:
         players = []
