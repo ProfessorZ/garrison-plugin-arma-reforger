@@ -107,11 +107,19 @@ class ArmaReforgerPlugin(GamePlugin):
 
     async def connect_custom(self, host: str, port: int, password: str) -> None:
         self._client = berconpy.RCONClient()
-        await self._client.connect(host, port, password)
+        # berconpy.connect() is an async context manager, not a coroutine.
+        # Use the lower-level protocol.run() to start the background task,
+        # then wait for login confirmation before returning.
+        self._client.protocol.run(host, port, password)
+        logged_in = await self._client.protocol.wait_for_login()
+        if not logged_in:
+            self._client.close()
+            self._client = None
+            raise RuntimeError("BattleEye RCON login failed — check host, port, and password")
 
     async def disconnect_custom(self) -> None:
         if self._client:
-            await self._client.close()
+            self._client.close()  # sync — cancels the background task
             self._client = None
 
     async def send_command_custom(self, command: str) -> str:
