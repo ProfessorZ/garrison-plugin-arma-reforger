@@ -106,11 +106,18 @@ class ArmaReforgerPlugin(GamePlugin):
         return "Arma Reforger"
 
     async def connect_custom(self, host: str, port: int, password: str) -> None:
+        import asyncio
+        import socket
+        # berconpy's UDP transport requires a pre-resolved IP, not a hostname.
+        loop = asyncio.get_running_loop()
+        resolved = await loop.run_in_executor(
+            None, lambda: socket.gethostbyname(host)
+        )
         self._client = berconpy.RCONClient()
         # berconpy.connect() is an async context manager, not a coroutine.
         # Use the lower-level protocol.run() to start the background task,
         # then wait for login confirmation before returning.
-        self._client.protocol.run(host, port, password)
+        self._client.protocol.run(resolved, port, password)
         logged_in = await self._client.protocol.wait_for_login()
         if not logged_in:
             self._client.close()
