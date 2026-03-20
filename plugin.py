@@ -96,6 +96,8 @@ class ArmaReforgerPlugin(GamePlugin):
 
     def __init__(self):
         self._client: Optional[berconpy.RCONClient] = None
+        self._connected_host: Optional[str] = None
+        self._connected_port: Optional[int] = None
 
     @property
     def game_type(self) -> str:
@@ -108,26 +110,39 @@ class ArmaReforgerPlugin(GamePlugin):
     async def connect_custom(self, host: str, port: int, password: str) -> None:
         import asyncio
         import socket
+        # Plugin instance is a singleton — if already connected to the same
+        # target, reuse the existing connection (same as rcon_manager behaviour).
+        if self._client is not None and self._client.is_connected():
+            if (host, port) == (self._connected_host, self._connected_port):
+                return
+            # Different target — drop the old connection first.
+            self._client.close()
+            self._client = None
+
         # berconpy's UDP transport requires a pre-resolved IP, not a hostname.
         loop = asyncio.get_running_loop()
         resolved = await loop.run_in_executor(
             None, lambda: socket.gethostbyname(host)
         )
-        self._client = berconpy.RCONClient()
+        client = berconpy.RCONClient()
         # berconpy.connect() is an async context manager, not a coroutine.
         # Use the lower-level protocol.run() to start the background task,
         # then wait for login confirmation before returning.
-        self._client.protocol.run(resolved, port, password)
-        logged_in = await self._client.protocol.wait_for_login()
+        client.protocol.run(resolved, port, password)
+        logged_in = await client.protocol.wait_for_login()
         if not logged_in:
-            self._client.close()
-            self._client = None
+            client.close()
             raise RuntimeError("BattleEye RCON login failed — check host, port, and password")
+        self._client = client
+        self._connected_host = host
+        self._connected_port = port
 
     async def disconnect_custom(self) -> None:
         if self._client:
             self._client.close()  # sync — cancels the background task
             self._client = None
+            self._connected_host = None
+            self._connected_port = None
 
     async def send_command_custom(self, command: str) -> str:
         if not self._client:
