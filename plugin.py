@@ -82,7 +82,7 @@ except ImportError:
         async def disconnect_custom(self) -> None:
             raise NotImplementedError
 
-        async def send_command_custom(self, command: str) -> str:
+        async def send_command_custom(self, command: str, content=None) -> str:
             raise NotImplementedError
 
 import berconpy
@@ -137,7 +137,7 @@ class ArmaReforgerPlugin(GamePlugin):
         self._password = None
         self._resolved_ip = None
 
-    async def send_command_custom(self, command: str) -> str:
+    async def send_command_custom(self, command: str, content=None) -> str:
         """Open a short-lived berconpy connection, send command, return response."""
         if not self._resolved_ip:
             raise RuntimeError("Not connected to server — call connect_custom first")
